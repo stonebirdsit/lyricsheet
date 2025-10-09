@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+  <title>LyricsTransp</title>
+
+  <style>
+    /* Always-bold titles in the main viewer */
+    .song-title { 
+      font-weight: 700 !important;
+    }
+
+    /* Always-bold rows in the playlists UI (left + right lists) */
+    .song-list .item,
+    .playlist-selected .item {
+      font-weight: 700 !important;
+    }
+
+    /* If some items previously had extra emphasis, normalize it */
+    .song-list .item.user,
+    .playlist-selected .item.user,
+    .song-list .item.selected,
+    .playlist-selected .item.selected {
+      font-weight: 700 !important; /* same weight as others */
+    }
+
+    :root { --controls-fade-ms: 200; }
+
+    html, body {
+      height: 100%;
+      margin: 0; padding: 0;
+      font-family: 'Inter', Arial, sans-serif;
+      line-height: 1.6;
+      background-color: #f4f4f4; color: #333;
+      box-sizing: border-box;
+      min-height: 100dvh;
+    }
+    *, *::before, *::after { box-sizing: inherit; }
+
+    .container {
+      width: 100%; margin: 0; padding: 0; background-color: #fff; position: relative;
+      height: 100%; min-height: 100dvh;
+      display: flex; flex-direction: column;
+    }
+
+    .song-selection {
+      padding: 15px 10px; text-align: center; background-color: #fff; border-bottom: 1px solid #eee; margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px;
+      display: none; /* shown only in edit */
+    }
+
+    #outputArea { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px; }
+
+    .song-viewer {
+      flex-grow: 1;
+      overflow: hidden; /* default: auto-fit without scroll */
+      border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;
+      padding: 15px; position: relative; cursor: default;
+    }
+    .song-viewer.editing { overflow-y: auto; cursor: text; }
+
+    /* Magnifier inside the viewer */
+    .viewer-controls{
+      position:absolute;
+      top:8px; right:8px;
+      z-index:1001;
+      display:flex; gap:8px;
+      transition: opacity var(--controls-fade-ms) ease;
+    }
+    .viewer-controls button{
+      padding:0; margin:0; font-size:1.5em; font-weight:bold; cursor:pointer;
+      background-color:#6c757d; color:#fff; border:none; border-radius:50%;
+      width:50px; height:50px; display:flex; align-items:center; justify-content:center; line-height:1;
+      box-shadow:0 4px 8px rgba(0,0,0,.2); user-select:none;
+    }
+
+    .bottom-controls{
+      position: fixed; z-index: 1000;
+      display: flex; gap: 8px;
+      transition: opacity var(--controls-fade-ms) ease;
+
+      bottom: 20px; right: 20px;
+      background-color: rgba(0,0,0,.7);
+      padding: 8px; border-radius: 50px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    }
+
+    .bottom-controls button {
+      padding: 0; margin: 0; font-size: 1.5em; font-weight: bold; cursor: pointer;
+      background-color: #6c757d; color: #fff; border: none; border-radius: 50%;
+      width: 50px; height: 50px; display:flex; align-items:center; justify-content:center; line-height: 1;
+      box-shadow: 0 4px 8px rgba(0,0,0,.2);
+      user-select: none;
+    }
+    #transposeDownButton, #transposeUpButton { background-color: #007bff; }
+    #fontDownButton, #fontUpButton { background-color: #10b981; }
+
+    /* Auto-hide (now also hides viewer-controls) */
+    body.controls-hidden .viewer-controls,
+    body.controls-hidden .bottom-controls { opacity: 0; pointer-events: none; }
+
+    .message-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 5px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,.2); z-index: 2000; display: none; text-align: center; }
+    .message-box.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+    .message-box button { margin-top: 15px; padding: 8px 15px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+
+    #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,.9); display:flex; flex-direction: column; justify-content: center; align-items: center; z-index: 3000; font-size: 1.2em; color: #555; text-align: center; }
+    .spinner { border: 4px solid rgba(0,0,0,.1); border-left-color: #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; width:100%; height:100%; background-color: rgba(0,0,0,.7); z-index:2000; display:none; align-items:center; justify-content:center; }
+    .modal { background-color: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; max-height: 80vh; display:flex; flex-direction:column; box-shadow: 0 5px 15px rgba(0,0,0,.3); }
+    .modal input { width: 100%; padding: 12px; font-size: 1.1em; margin-bottom: 15px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+    .modal-content { flex-grow: 1; overflow-y: auto; border-top:1px solid #eee; border-bottom:1px solid #eee; touch-action: pan-y; }
+    .modal-actions { margin-top: 15px; display:flex; justify-content:flex-end; gap:10px; }
+    .modal-actions button { padding: 10px; font-size: 1em; border-radius: 5px; cursor: pointer; border: none; color: #fff; }
+    #closeSearchButton { background-color: #6c757d; }
+    .search-result-item { padding: 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+    .search-result-item:last-child { border-bottom: none; }
+    .search-result-item:hover { background-color: #f5f5f5; }
+
+    /* Build/version tag */
+    #verTag { position: fixed; left: 8px; bottom: 8px; z-index: 1001; font-size: 11px; color:#64748b; background:#fff; border:1px solid #e5e7eb; padding: 2px 6px; border-radius: 6px; }
+
+    @media (min-width: 1024px) {
+      .container { max-width: 960px; margin: 20px auto; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.1); height: calc(100% - 40px); }
+    }
+
+    /* --- Force viewer font + chord color --- */
+    #songDisplay {
+      font-family: 'Roboto Mono','Courier New', Courier, monospace !important;
+    }
+    #songDisplay .chord {
+      color: #e11d48 !important; /* vivid red */
+      font-weight: 700;
+    }
+    /* Keep song body monospace */
+    #songDisplay {
+      font-family: 'Roboto Mono','Courier New', Courier, monospace !important;
+    }
+
+    /* Restore title styling (separate font + bigger + blue) */
+    #songDisplay .song-title {
+      display: block;
+      font-family: 'Inter', Arial, sans-serif !important;
+      font-weight: 800;
+      font-size: 1.25em;   /* bump size */
+      line-height: 1.2;
+      color: #1d4ed8 !important; /* blue */
+      margin: 0 0 .5em 0;
+    }
+
+    /* Keep chords strong red */
+    #songDisplay .chord {
+      color: #e11d48 !important;
+      font-weight: 700;
+    }
+
+    /* Default: no extra space */
+    .song-viewer { padding-top: 15px; }
+
+    /* While controls are visible (body NOT .controls-hidden), reserve room for magnifier */
+    body:not(.controls-hidden) .song-viewer { padding-top: 56px; }
+
+    /* Prev / Next look like the other round buttons */
+    #prevSongButton, #nextSongButton {
+      background-color: #6c757d;
+      font-weight: 900;
+    }
+
+    /* Hide on desktop (mouse/trackpad); show on touch devices */
+    @media (hover: hover) and (pointer: fine) {
+      #prevSongButton, #nextSongButton { display: none; }
+    }
+  </style>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap" rel="stylesheet">
+
+  <!-- Firebase libs (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+  <!-- App (cache-busted) -->
+  <script type="module" src="./src/index.js?v=2025-09-20-5"></script>
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="container">
+    <div class="song-selection">
+      <span id="whoWrap" class="who-pill" style="display:none;">Logged in as: <strong id="whoami">…</strong></span>
+      <a href="./playlist.html" id="playlistButton" class="button-link" style="background:#ffc107;color:#212529">Manage Playlists</a>
+      <a href="/admin.html?v=6" id="adminLink" class="button-link" style="display:none;background:#8b5cf6">Admin</a>
+      <a href="/login.html?v=1" id="loginLink" class="button-link" style="background:#3b82f6">Login</a>
+      <a href="#" id="logoutLink" class="button-link" style="display:none;background:#ef4444">Logout</a>
+      <select id="playlistSongSelector"></select>
+      <button id="editButton" title="Edit / Read">✎</button>
+
+      <button id="newSongButton"  style="background:#17a2b8">New Song</button>
+      <button id="saveSongButton" style="background:#28a745">Save</button>
+      <button id="deleteSongButton" style="background:#dc3545">Delete</button>
+      <button id="resetTransposeButton" style="background:#ffc107;color:#212529">Reset Transpose</button>
+    </div>
+
+    <div id="outputArea">
+      <div class="song-viewer">
+        <!-- Magnifier INSIDE the viewer -->
+        <div class="viewer-controls">
+          <!-- Search enabled (PDF search removed; this opens the overlay for Firebase + Local) -->
+          <button id="searchButton" title="Search">🔍</button>
+        </div>
+
+        <pre id="songDisplay" contenteditable="false"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM controls -->
+  <div class="bottom-controls">
+    <button id="prevSongButton" title="Previous song" aria-label="Previous">‹</button>
+    <button id="nextSongButton" title="Next song" aria-label="Next">›</button>
+
+    <button id="transposeDownButton" title="Transpose down">-</button>
+    <button id="transposeUpButton"   title="Transpose up">+</button>
+    <button id="fontDownButton"      title="Smaller text">A−</button>
+    <button id="fontUpButton"        title="Bigger text">A+</button>
+  </div>
+
+  <div id="messageBox" class="message-box">
+    <p id="messageText"></p>
+    <button id="messageBoxCloseButton">OK</button>
+  </div>
+
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    <p>Φόρτωση εφαρμογής...</p>
+    <p>Παρακαλώ περιμένετε.</p>
+  </div>
+
+  <!-- Search overlay (used for Firebase results and Local files section) -->
+  <div id="searchOverlay" class="modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="searchInput">
+      <input type="text" id="searchInput" placeholder="Type to search for a song...">
+      <div id="searchResults" class="modal-content"></div>
+      <div class="modal-actions">
+        <button id="closeSearchButton">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header auth wiring (NO Firebase init here) -->
+  <script>
+    (function(){
+      const adminLink  = document.getElementById('adminLink');
+      const loginLink  = document.getElementById('loginLink');
+      const logoutLink = document.getElementById('logoutLink');
+      const whoWrap = document.getElementById('whoWrap');
+      const whoami  = document.getElementById('whoami');
+
+      function setAdminVisible(visible){ if (adminLink) adminLink.style.display = visible ? 'inline-block' : 'none'; }
+      function setAuthLinks(signedIn){
+        if (loginLink)  loginLink.style.display  = signedIn ? 'none' : 'inline-block';
+        if (logoutLink) logoutLink.style.display = signedIn ? 'inline-block' : 'none';
+      }
+      function setWho(user){
+        if (!whoWrap || !whoami) return;
+        if (user) { whoami.textContent = user.email || user.uid; whoWrap.style.display='inline-block'; }
+        else { whoami.textContent=''; whoWrap.style.display='none'; }
+      }
+
+      function bindAuth(auth){
+        if (logoutLink){
+          logoutLink.addEventListener('click', async (e)=>{
+            e.preventDefault();
+            try{ await auth.signOut(); }catch{}
+            // manual navigation on user action is OK
+            window.location.href = '/login.html?v=1';
+          });
+        }
+        auth.onAuthStateChanged(async (user)=>{
+          if (!user){
+            setAuthLinks(false);
+            setWho(null);
+            return; // do not redirect
+          }
+          setAuthLinks(true);
+          setWho(user);
+          try {
+            const tr = await user.getIdTokenResult(true);
+            setAdminVisible(tr.claims && tr.claims.admin === true);
+          } catch { setAdminVisible(false); }
+        });
+      }
+
+      // Wait for index.js to initialize Firebase and expose window.auth
+      let tries = 0;
+      const t = setInterval(()=>{
+        tries++;
+        if (window.auth) { clearInterval(t); bindAuth(window.auth); }
+        else if (tries > 200) { clearInterval(t); console.warn('auth not available'); }
+      }, 50);
+    })();
+  </script>
+
+  <!-- Local search overlay wiring -->
+  <script type="module">
+    import { searchLocalSongs, renderLocalResults } from './src/local-files-search.js?v=2025-09-19';
+
+    const overlay   = document.getElementById('searchOverlay');
+    const input     = document.getElementById('searchInput');
+    const resultsEl = document.getElementById('searchResults');
+    const btnOpen   = document.getElementById('searchButton');
+    const btnClose  = document.getElementById('closeSearchButton');
+
+    function openOverlay(){
+      if (!overlay) return;
+      overlay.style.display = 'flex';
+      if (input){
+        input.value = '';
+        input.focus();
+      }
+      if (resultsEl) resultsEl.innerHTML = '';
+    }
+    function closeOverlay(){
+      if (!overlay) return;
+      overlay.style.display = 'none';
+    }
+
+    // Enable and bind search button
+    if (btnOpen){
+      btnOpen.disabled = false;
+      btnOpen.addEventListener('click', openOverlay);
+    }
+    if (btnClose) btnClose.addEventListener('click', closeOverlay);
+
+    // Click outside modal closes
+    overlay?.addEventListener('click', (e) => {
+      if (e.target === overlay) closeOverlay();
+    });
+    // ESC closes
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeOverlay();
+    });
+
+    // Debounced Local files search
+    let debounce;
+    input?.addEventListener('input', () => {
+      const q = input.value.trim();
+      clearTimeout(debounce);
+      debounce = setTimeout(async () => {
+        try {
+          const local = await searchLocalSongs(q);
+          renderLocalResults(resultsEl, local, {
+            onOpen: (meta, text) => {
+              const display = document.getElementById('songDisplay');
+              if (display) display.textContent = text;
+              closeOverlay();
+            }
+          });
+        } catch (err) {
+          console.error('Local search error:', err);
+        }
+      }, 250);
+    });
+
+    // Also listen to the custom event in case something else triggers it
+    window.addEventListener('local-file-song:open', (ev) => {
+      const { text } = ev.detail || {};
+      const display = document.getElementById('songDisplay');
+      if (display && typeof text === 'string') {
+        display.textContent = text;
+      }
+      closeOverlay();
+    });
+  </script>
+
+  <!-- Service worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js?v=2025-09-10-3')
+          .then(r => { console.log('SW registered:', r.scope); r.update?.(); })
+          .catch(err => console.error('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
